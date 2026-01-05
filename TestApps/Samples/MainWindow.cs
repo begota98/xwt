@@ -26,17 +26,19 @@ namespace Samples
 			Width = 500;
 			Height = 400;
 
-			try {
-				statusIcon = Application.CreateStatusIcon ();
-				statusIcon.Menu = new Menu ();
-				statusIcon.Menu.Items.Add (new MenuItem ("Test"));
-				statusIcon.Image = Image.FromResource (GetType (), "package.png");
-			} catch {
-				Console.WriteLine ("Status icon could not be shown");
+			if (Toolkit.CurrentEngine.Type != ToolkitType.Gtk4) {
+				try {
+					statusIcon = Application.CreateStatusIcon ();
+					statusIcon.Menu = new Menu ();
+					statusIcon.Menu.Items.Add (new MenuItem ("Test"));
+					statusIcon.Image = Image.FromResource (GetType (), "package.png");
+				} catch {
+					Console.WriteLine ("Status icon could not be shown");
+				}
 			}
-			
+
 			Menu menu = new Menu ();
-			
+
 			var file = new MenuItem ("_File");
 			file.SubMenu = new Menu ();
 			file.SubMenu.Items.Add (new MenuItem ("_Open"));
@@ -47,14 +49,14 @@ namespace Samples
 			};
 			file.SubMenu.Items.Add (mi);
 			menu.Items.Add (file);
-			
+
 			var edit = new MenuItem ("_Edit");
 			edit.SubMenu = new Menu ();
 			edit.SubMenu.Items.Add (new MenuItem ("_Copy"));
 			edit.SubMenu.Items.Add (new MenuItem ("Cu_t"));
 			edit.SubMenu.Items.Add (new MenuItem ("_Paste"));
 			menu.Items.Add (edit);
-			
+
 			MainMenu = menu;
 			
 			
@@ -185,9 +187,16 @@ namespace Samples
 					sampleBox.Remove (currentSample);
 				Sample s = store.GetNavigatorAt (samplesTree.SelectedRow).GetValue (widgetCol);
 				if (s.Type != null) {
-					if (s.Widget == null)
-						s.Widget = (Widget)Activator.CreateInstance (s.Type);
-					sampleBox.PackStart (s.Widget, true);
+					try {
+						if (s.Widget == null)
+							s.Widget = (Widget)Activator.CreateInstance (s.Type);
+						sampleBox.PackStart (s.Widget, true);
+					} catch (Exception ex) {
+						Console.WriteLine (ex);
+						var error = new Label ("Sample failed to load: " + ex.Message);
+						s.Widget = error;
+						sampleBox.PackStart (error, true);
+					}
 				}
 
 			//	Console.WriteLine (System.Xaml.XamlServices.Save (s.Widget));
@@ -225,4 +234,3 @@ namespace Samples
 		public Widget Widget;
 	}
 }
-

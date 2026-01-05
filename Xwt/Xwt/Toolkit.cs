@@ -51,6 +51,7 @@ namespace Xwt
 		bool exitCallbackRegistered;
 
 		static KnownBackend[] knownBackends = new [] {
+			new KnownBackend { Type = ToolkitType.Gtk4, TypeName = "Xwt.GtkBackend.GtkEngine, Xwt.Gtk4" },
 			new KnownBackend { Type = ToolkitType.Gtk3, TypeName = "Xwt.GtkBackend.GtkEngine, Xwt.Gtk3" },
 			new KnownBackend { Type = ToolkitType.Gtk, TypeName = "Xwt.GtkBackend.GtkEngine, Xwt.Gtk" },
 			new KnownBackend { Type = ToolkitType.XamMac, TypeName = "Xwt.Mac.MacEngine, Xwt.XamMac" },
@@ -90,9 +91,9 @@ namespace Xwt
 					switch (Desktop.DesktopType) {
 						case DesktopType.Linux:
 							// don't mix Gtk2 and Gtk3
-							if (CurrentEngine != null && (CurrentEngine.Type == ToolkitType.Gtk || CurrentEngine.Type == ToolkitType.Gtk3))
+							if (CurrentEngine != null && (CurrentEngine.Type == ToolkitType.Gtk || CurrentEngine.Type == ToolkitType.Gtk3 || CurrentEngine.Type == ToolkitType.Gtk4))
 								nativeEngine = CurrentEngine;
-							else if (!TryLoad (ToolkitType.Gtk3, out nativeEngine))
+							else if (!TryLoad (ToolkitType.Gtk4, out nativeEngine) && !TryLoad (ToolkitType.Gtk3, out nativeEngine))
 								TryLoad (ToolkitType.Gtk, out nativeEngine);
 							break;
 						case DesktopType.Windows:
@@ -853,4 +854,3 @@ namespace Xwt
 		All = WidgetOpacity | WindowOpacity
 	}
 }
-
