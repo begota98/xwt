@@ -75,7 +75,10 @@ namespace Xwt.GtkBackend
 
 		public bool MultiLine {
 			get { return multiline; }
-			set { multiline = value; }
+			set {
+				multiline = value;
+			}
+
 		}
 
 		public int CursorPosition {

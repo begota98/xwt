@@ -51,7 +51,7 @@ namespace Xwt.GtkBackend
 		}
 
 		public Color TextColor {
-			get { return customTextColor ?? Colors.Black; }
+			get { return customTextColor ?? GetThemeTextColor(); }
 			set {
 				customTextColor = value;
 				ApplyTextColor();
@@ -171,6 +171,17 @@ namespace Xwt.GtkBackend
 			var a = color.Alpha.ToString("0.###");
 			var css = "." + textColorCssClass + " { color: rgba(" + r + "," + g + "," + b + "," + a + "); }";
 			textColorProvider.LoadFromString(css);
+		}
+
+		Color GetThemeTextColor()
+		{
+			if (label == null)
+				return Colors.Black;
+			var context = label.GetStyleContext();
+			if (context == null)
+				return Colors.Black;
+			context.GetColor(out var color);
+			return color.ToXwtValue();
 		}
 
 		static string EscapeMarkup(string value)

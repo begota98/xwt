@@ -31,7 +31,7 @@ namespace Xwt.GtkBackend
 		}
 
 		public Color LabelColor {
-			get { return customLabelColor ?? Colors.Black; }
+			get { return customLabelColor ?? GetThemeLabelColor(); }
 			set {
 				customLabelColor = value;
 				ApplyLabelColor();
@@ -231,6 +231,18 @@ namespace Xwt.GtkBackend
 			var a = color.Alpha.ToString("0.###");
 			var css = "." + labelColorCssClass + " { color: rgba(" + r + "," + g + "," + b + "," + a + "); }";
 			labelColorProvider.LoadFromString(css);
+		}
+
+		Color GetThemeLabelColor()
+		{
+			var target = (Gtk.Widget)labelWidget ?? button;
+			if (target == null)
+				return Colors.Black;
+			var context = target.GetStyleContext();
+			if (context == null)
+				return Colors.Black;
+			context.GetColor(out var color);
+			return color.ToXwtValue();
 		}
 	}
 }
