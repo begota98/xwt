@@ -112,18 +112,38 @@ namespace Xwt.GtkBackend
 
 		public Rectangle GetCellBounds(int row, CellView cell, bool includeMargin)
 		{
-			if (TryGetCellBinding(ctx => ctx.RowIndex == row, cell, out _, out var cellBinding))
-				return GetWidgetBounds(cellBinding.Widget);
+			if (TryGetCellBinding(ctx => ctx.RowIndex == row, cell, out var rowBinding, out var cellBinding)) {
+				if (includeMargin && rowBinding?.Container != null)
+					return GetWidgetBounds(rowBinding.Container);
+				if (cellBinding?.Widget != null)
+					return GetWidgetBounds(cellBinding.Widget);
+			}
 			return Rectangle.Zero;
 		}
 
 		public Rectangle GetRowBounds(int row, bool includeMargin)
 		{
 			if (TryGetRowBinding(ctx => ctx.RowIndex == row, true, out var binding)) {
-				var bounds = GetWidgetBounds(binding.Container);
+				Rectangle bounds;
+				if (includeMargin) {
+					bounds = GetWidgetBounds(binding.Container);
+					if (bounds.IsEmpty)
+						return Rectangle.Zero;
+					bounds.Width = ColumnView.GetAllocatedWidth();
+					return bounds;
+				}
+
+				bounds = Rectangle.Zero;
+				foreach (var cell in binding.Cells) {
+					if (cell?.Widget == null)
+						continue;
+					var cellBounds = GetWidgetBounds(cell.Widget);
+					if (cellBounds.IsEmpty)
+						continue;
+					bounds = bounds.IsEmpty ? cellBounds : bounds.Union(cellBounds);
+				}
 				if (bounds.IsEmpty)
 					return Rectangle.Zero;
-				bounds.Width = ColumnView.GetAllocatedWidth();
 				return bounds;
 			}
 			return Rectangle.Zero;

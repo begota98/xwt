@@ -399,10 +399,15 @@ namespace Xwt.GtkBackend
 
 			var h = backend.Frontend.HorizontalPlacement;
 			var v = backend.Frontend.VerticalPlacement;
+			var margin = backend.Frontend.Margin;
 			backend.Widget.Halign = ToGtkAlign(h);
 			backend.Widget.Valign = ToGtkAlign(v);
 			backend.Widget.Hexpand = h == WidgetPlacement.Fill;
 			backend.Widget.Vexpand = v == WidgetPlacement.Fill;
+			backend.Widget.MarginStart = (int)margin.Left;
+			backend.Widget.MarginEnd = (int)margin.Right;
+			backend.Widget.MarginTop = (int)margin.Top;
+			backend.Widget.MarginBottom = (int)margin.Bottom;
 		}
 
 		static string GetCursorName(CursorType cursor)

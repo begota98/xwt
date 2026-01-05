@@ -18,7 +18,11 @@ namespace Xwt.GtkBackend
 		string value;
 		Uri uri;
 
-		public event EventHandler AccessibilityInUseChanged;
+		public event EventHandler AccessibilityInUseChanged
+		{
+			add { /* GTK4 doesn't expose an accessibility-in-use signal. */ }
+			remove { }
+		}
 
 		public void Initialize(IAccessibleEventSink eventSink)
 		{

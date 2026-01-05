@@ -280,7 +280,13 @@ namespace Xwt.GtkBackend
 			box.Valign = Gtk.Align.Center;
 			box.Hexpand = true;
 			listHeader.SetChild(box);
-			headerBindings[listHeader] = new HeaderBinding(box);
+			var binding = new HeaderBinding(box);
+			var click = Gtk.GestureClick.New();
+			click.SetButton(0);
+			click.OnReleased += (sender, e) => HandleHeaderClick(binding);
+			box.AddController(click);
+			binding.ClickController = click;
+			headerBindings[listHeader] = binding;
 		}
 
 		void BindHeaderItem(Gtk.SignalListItemFactory sender, Gtk.SignalListItemFactory.BindSignalArgs args)
@@ -381,6 +387,30 @@ namespace Xwt.GtkBackend
 				binding.Container.Append(content);
 				content.Show();
 			}
+		}
+
+		void HandleHeaderClick(HeaderBinding binding)
+		{
+			var column = binding?.ColumnInfo?.Column;
+			if (column == null || column.SortDataField == null)
+				return;
+
+			foreach (var info in columns.Values) {
+				if (info.Column == null || ReferenceEquals(info.Column, column))
+					continue;
+				if (info.Column.SortIndicatorVisible)
+					info.Column.SortIndicatorVisible = false;
+			}
+
+			if (!column.SortIndicatorVisible) {
+				column.SortIndicatorVisible = true;
+				column.SortDirection = ColumnSortDirection.Ascending;
+				return;
+			}
+
+			column.SortDirection = column.SortDirection == ColumnSortDirection.Ascending
+				? ColumnSortDirection.Descending
+				: ColumnSortDirection.Ascending;
 		}
 
 		Gtk.Widget CreateHeaderContent(ColumnInfo info)
@@ -947,7 +977,13 @@ namespace Xwt.GtkBackend
 
 			if (wantsEditable) {
 				var label = Gtk.EditableLabel.New(string.Empty);
-				label.OnChanged += (sender, args) => HandleTextEdited(binding, cell, textView, label);
+				label.OnNotify += (sender, args) => {
+					if (args?.Pspec == null || args.Pspec.GetName() != "editing")
+						return;
+					if (label.Editing)
+						return;
+					HandleTextEdited(binding, cell, textView, label);
+				};
 				label.Show();
 				cell.Widget = label;
 			} else {
@@ -1467,6 +1503,7 @@ namespace Xwt.GtkBackend
 			public Gtk.Box Container { get; }
 			public Gtk.Widget Content { get; set; }
 			public ColumnInfo ColumnInfo { get; set; }
+			public Gtk.GestureClick ClickController { get; set; }
 
 			public HeaderBinding(Gtk.Box container)
 			{
@@ -1475,6 +1512,11 @@ namespace Xwt.GtkBackend
 
 			public void Dispose()
 			{
+				if (ClickController != null && Container != null) {
+					Container.RemoveController(ClickController);
+					ClickController.Dispose();
+				}
+				ClickController = null;
 				if (Container != null && Content != null)
 					Container.Remove(Content);
 				Content = null;

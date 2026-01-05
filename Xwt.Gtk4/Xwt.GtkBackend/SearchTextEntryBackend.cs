@@ -1,11 +1,12 @@
 using System;
+using Gtk.Internal;
 using Xwt.Backends;
 
 namespace Xwt.GtkBackend
 {
 	public class SearchTextEntryBackend : WidgetBackend, ISearchTextEntryBackend
 	{
-		Gtk.SearchEntry entry;
+		Gtk.Entry entry;
 		ITextEntryEventSink eventSink;
 		bool selectionChangedEnabled;
 		bool multiline;
@@ -16,7 +17,13 @@ namespace Xwt.GtkBackend
 
 		public SearchTextEntryBackend()
 		{
-			entry = Gtk.SearchEntry.New();
+			entry = Gtk.Entry.New();
+			entry.AddCssClass("search");
+			entry.PrimaryIconName = "edit-find-symbolic";
+			entry.PrimaryIconActivatable = false;
+			entry.PrimaryIconSensitive = false;
+			entry.OnChanged += HandleSearchChanged;
+			entry.OnIconRelease += HandleIconRelease;
 			Widget = entry;
 			Widget.Show();
 		}
@@ -155,14 +162,63 @@ namespace Xwt.GtkBackend
 			}
 		}
 
-		public bool HasCompletions => false;
+		public bool HasCompletions => entry?.Completion?.Model != null;
 
 		public void SetCompletions(string[] completions)
 		{
+			var widgetCompletion = entry.Completion;
+
+			if (completions == null || completions.Length == 0) {
+				if (widgetCompletion != null)
+					widgetCompletion.Model = null;
+				return;
+			}
+
+			if (widgetCompletion == null)
+				entry.Completion = widgetCompletion = CreateCompletion();
+
+			var model = CreateCompletionModel();
+			foreach (var c in completions) {
+				model.Append(out Gtk.TreeIter iter);
+				using var value = new GObject.Value(c);
+				model.SetValue(iter, 0, value);
+			}
+			widgetCompletion.Model = model;
 		}
 
 		public void SetCompletionMatchFunc(Func<string, string, bool> matchFunc)
 		{
+			if (matchFunc == null)
+				return;
+			var widgetCompletion = entry.Completion;
+			if (widgetCompletion == null)
+				entry.Completion = widgetCompletion = CreateCompletion();
+			widgetCompletion.SetMatchFunc((Gtk.EntryCompletion completion, string key, Gtk.TreeIter iter) => {
+				completion.Model.GetValue(iter, 0, out GObject.Value value);
+				try {
+					var completionText = value.GetString();
+					return matchFunc(key, completionText);
+				} finally {
+					value.Dispose();
+				}
+			});
+		}
+
+		static Gtk.EntryCompletion CreateCompletion()
+		{
+			var completion = Gtk.EntryCompletion.New();
+			completion.PopupCompletion = true;
+			completion.InlineCompletion = true;
+			completion.InlineSelection = true;
+			completion.TextColumn = 0;
+			return completion;
+		}
+
+		static Gtk.ListStore CreateCompletionModel()
+		{
+			var types = new UIntPtr[] { GObject.Type.String.Value };
+			var handle = new ListStoreHandle(Gtk.Internal.ListStore.New(1, types), true);
+			return new Gtk.ListStore(handle);
 		}
 
 		public override void EnableEvent(object eventId)
@@ -216,6 +272,30 @@ namespace Xwt.GtkBackend
 		{
 			if (eventSink != null)
 				ApplicationContext.InvokeUserCode(eventSink.OnActivated);
+		}
+
+		void HandleSearchChanged(Gtk.Editable sender, EventArgs e)
+		{
+			ShowHideClearButton();
+		}
+
+		void HandleIconRelease(Gtk.Entry sender, Gtk.Entry.IconReleaseSignalArgs args)
+		{
+			if (args.IconPos == Gtk.EntryIconPosition.Secondary)
+				Text = string.Empty;
+		}
+
+		void ShowHideClearButton()
+		{
+			if (string.IsNullOrEmpty(Text)) {
+				entry.SecondaryIconName = null;
+				entry.SecondaryIconActivatable = false;
+				entry.SecondaryIconSensitive = false;
+			} else {
+				entry.SecondaryIconName = "edit-clear-symbolic";
+				entry.SecondaryIconActivatable = true;
+				entry.SecondaryIconSensitive = true;
+			}
 		}
 
 		void HandleNotify(GObject.Object sender, GObject.Object.NotifySignalArgs args)
