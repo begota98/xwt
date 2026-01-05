@@ -319,6 +319,11 @@ namespace Xwt.GtkBackend
 				string text = textView.Text ?? string.Empty;
 				if (!string.IsNullOrEmpty(textView.Markup))
 					text = FormattedText.FromMarkup(textView.Markup).Text;
+				if (view is TextCellView textCell && textCell.MarkupField != null) {
+					var markup = source.GetValue(row, textCell.MarkupField.Index)?.ToString() ?? string.Empty;
+					if (!string.IsNullOrEmpty(markup))
+						return MeasureText(FormattedText.FromMarkup(markup).Text);
+				}
 				if (textView.TextField != null)
 					text = source.GetValue(row, textView.TextField.Index)?.ToString() ?? string.Empty;
 				return MeasureText(text);

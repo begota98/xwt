@@ -22,6 +22,7 @@ namespace Xwt.GtkBackend
 		string labelColorCssClass;
 		static int labelColorClassId;
 		Color? customLabelColor;
+		GObject.SignalHandler<GObject.Object, GObject.Object.NotifySignalArgs> rootNotifyHandler;
 
 		public ButtonBackend()
 		{
@@ -117,10 +118,41 @@ namespace Xwt.GtkBackend
 
 		void ApplyDefaultWidget()
 		{
-			if (!isDefault)
+			if (!isDefault) {
+				RemoveRootNotify();
 				return;
-			if (button.Root is Gtk.Window window)
+			}
+
+			if (button.Root is Gtk.Window window) {
 				window.DefaultWidget = button;
+				RemoveRootNotify();
+				return;
+			}
+
+			EnsureRootNotify();
+		}
+
+		void EnsureRootNotify()
+		{
+			if (rootNotifyHandler != null || button == null)
+				return;
+			rootNotifyHandler = HandleRootNotify;
+			button.OnNotify += rootNotifyHandler;
+		}
+
+		void RemoveRootNotify()
+		{
+			if (rootNotifyHandler == null || button == null)
+				return;
+			button.OnNotify -= rootNotifyHandler;
+			rootNotifyHandler = null;
+		}
+
+		void HandleRootNotify(GObject.Object sender, GObject.Object.NotifySignalArgs args)
+		{
+			if (args?.Pspec == null || args.Pspec.GetName() != "root")
+				return;
+			ApplyDefaultWidget();
 		}
 
 		void UpdateContent()
@@ -243,6 +275,12 @@ namespace Xwt.GtkBackend
 				return Colors.Black;
 			context.GetColor(out var color);
 			return color.ToXwtValue();
+		}
+
+		public override void Dispose()
+		{
+			RemoveRootNotify();
+			base.Dispose();
 		}
 	}
 }

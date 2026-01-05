@@ -30,6 +30,9 @@ namespace Xwt.GtkBackend
 		Gtk.ColumnViewColumn autoExpandColumn;
 		Gtk.TickCallback tickCallback;
 		uint tickCallbackId;
+		Gtk.EventControllerKey cellKeyController;
+		RowBinding hoveredBinding;
+		CellBinding hoveredCell;
 		int lastRequestedWidth = -1;
 		int lastRequestedHeight = -1;
 		bool useAlternatingRowColors;
@@ -70,6 +73,7 @@ namespace Xwt.GtkBackend
 			}
 			scrolledWindow.OnNotify += HandleScrolledWindowNotify;
 			columnView.OnNotify += HandleColumnViewNotify;
+			AttachCellKeyController();
 			AttachAdjustmentGuards();
 			AttachColumnViewAdjustmentGuards();
 		}
@@ -835,6 +839,7 @@ namespace Xwt.GtkBackend
 				return;
 			var listItem = (Gtk.ListItem)args.Object;
 			if (info.Bindings.TryGetValue(listItem, out var binding)) {
+				ClearHoveredCell(binding, null);
 				binding.Dispose();
 				info.Bindings.Remove(listItem);
 			}
@@ -1110,6 +1115,7 @@ namespace Xwt.GtkBackend
 
 		void HandleCellEnter(RowBinding binding, CellBinding cell)
 		{
+			SetHoveredCell(binding, cell);
 			var backend = GetCellBackend(cell.View);
 			if (backend == null || !backend.IsEventEnabled(WidgetEvent.MouseEntered))
 				return;
@@ -1121,6 +1127,7 @@ namespace Xwt.GtkBackend
 
 		void HandleCellLeave(RowBinding binding, CellBinding cell)
 		{
+			ClearHoveredCell(binding, cell);
 			var backend = GetCellBackend(cell.View);
 			if (backend == null || !backend.IsEventEnabled(WidgetEvent.MouseExited))
 				return;
@@ -1132,6 +1139,7 @@ namespace Xwt.GtkBackend
 
 		void HandleCellMotion(RowBinding binding, CellBinding cell, Gtk.EventControllerMotion motion, double x, double y)
 		{
+			SetHoveredCell(binding, cell);
 			var backend = GetCellBackend(cell.View);
 			if (backend == null || !backend.IsEventEnabled(WidgetEvent.MouseMoved))
 				return;
@@ -1147,8 +1155,76 @@ namespace Xwt.GtkBackend
 		{
 			if (binding.Context == null)
 				return null;
+			SetCurrentEventRow(binding.Context);
 			var status = CreateCellStatus(binding, cell);
 			return backend.LoadData(binding.Context.CellDataSource, status, cell.Widget);
+		}
+
+		void AttachCellKeyController()
+		{
+			if (cellKeyController != null)
+				return;
+			cellKeyController = Gtk.EventControllerKey.New();
+			cellKeyController.OnKeyPressed += HandleCellKeyPressed;
+			cellKeyController.OnKeyReleased += HandleCellKeyReleased;
+			columnView.AddController(cellKeyController);
+		}
+
+		bool HandleCellKeyPressed(Gtk.EventControllerKey sender, Gtk.EventControllerKey.KeyPressedSignalArgs args)
+		{
+			if (hoveredBinding == null || hoveredCell == null)
+				return false;
+
+			var backend = GetCellBackend(hoveredCell.View);
+			if (backend == null || !backend.IsEventEnabled(WidgetEvent.KeyPressed))
+				return false;
+
+			var sink = PrepareCellEvent(hoveredBinding, hoveredCell, backend);
+			if (sink == null)
+				return false;
+
+			var key = (Key)args.Keyval;
+			var modifiers = args.State.ToXwtValue();
+			var timestamp = (long)sender.GetCurrentEventTime();
+			var kargs = new KeyEventArgs(key, (int)args.Keycode, modifiers, false, timestamp);
+			ApplicationContext.InvokeUserCode(() => sink.OnKeyPressed(kargs));
+			return kargs.Handled;
+		}
+
+		void HandleCellKeyReleased(Gtk.EventControllerKey sender, Gtk.EventControllerKey.KeyReleasedSignalArgs args)
+		{
+			if (hoveredBinding == null || hoveredCell == null)
+				return;
+
+			var backend = GetCellBackend(hoveredCell.View);
+			if (backend == null || !backend.IsEventEnabled(WidgetEvent.KeyReleased))
+				return;
+
+			var sink = PrepareCellEvent(hoveredBinding, hoveredCell, backend);
+			if (sink == null)
+				return;
+
+			var key = (Key)args.Keyval;
+			var modifiers = args.State.ToXwtValue();
+			var timestamp = (long)sender.GetCurrentEventTime();
+			var kargs = new KeyEventArgs(key, (int)args.Keycode, modifiers, false, timestamp);
+			ApplicationContext.InvokeUserCode(() => sink.OnKeyReleased(kargs));
+		}
+
+		void SetHoveredCell(RowBinding binding, CellBinding cell)
+		{
+			hoveredBinding = binding;
+			hoveredCell = cell;
+		}
+
+		void ClearHoveredCell(RowBinding binding, CellBinding cell)
+		{
+			if (hoveredBinding != binding)
+				return;
+			if (cell != null && hoveredCell != cell)
+				return;
+			hoveredBinding = null;
+			hoveredCell = null;
 		}
 
 		void HandleTextEdited(RowBinding binding, CellBinding cell, ICellViewFrontend viewFrontend, Gtk.EditableLabel label)

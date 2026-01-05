@@ -136,7 +136,14 @@ namespace Xwt.GtkBackend
 			var row = (int)listItem.Position;
 			var context = new RowContext(source, row);
 
-			if (allowSeparator && eventSink != null && eventSink.RowIsSeparator(row)) {
+			bool isSeparator = false;
+			if (allowSeparator && eventSink != null) {
+				ApplicationContext.InvokeUserCode(() => {
+					isSeparator = eventSink.RowIsSeparator(row);
+				});
+			}
+
+			if (allowSeparator && isSeparator) {
 				binding.SetSeparator(true);
 				listItem.Selectable = false;
 				listItem.Activatable = false;
