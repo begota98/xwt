@@ -5,15 +5,32 @@ namespace Xwt.GtkBackend
 {
 	public class SeparatorMenuItemBackend : ISeparatorMenuItemBackend, IGtkMenuItemBackend
 	{
-		readonly Gtk.Separator separator;
+		MenuBackend menuHost;
+		string label = string.Empty;
+		string tooltip = string.Empty;
+		bool useMnemonic;
+		bool sensitive = true;
+		bool visible = true;
 
-		public SeparatorMenuItemBackend()
+		public bool IsSeparator => true;
+
+		public bool IsVisible => visible;
+
+		public void Attach(MenuBackend menu)
 		{
-			separator = Gtk.Separator.New(Gtk.Orientation.Horizontal);
-			separator.Show();
+			menuHost = menu;
 		}
 
-		public Gtk.Widget Widget => separator;
+		public void Detach(MenuBackend menu)
+		{
+			if (menuHost == menu)
+				menuHost = null;
+		}
+
+		public Gio.MenuItem BuildMenuItem(string actionGroupName)
+		{
+			return null;
+		}
 
 		public void InitializeBackend(object frontend, ApplicationContext context)
 		{
@@ -39,20 +56,32 @@ namespace Xwt.GtkBackend
 		{
 		}
 
-		public string Label { get; set; }
+		public string Label {
+			get { return label ?? string.Empty; }
+			set { label = value ?? string.Empty; }
+		}
 
-		public string TooltipText { get; set; }
+		public string TooltipText {
+			get { return tooltip ?? string.Empty; }
+			set { tooltip = value ?? string.Empty; }
+		}
 
-		public bool UseMnemonic { get; set; }
+		public bool UseMnemonic {
+			get { return useMnemonic; }
+			set { useMnemonic = value; }
+		}
 
 		public bool Sensitive {
-			get { return separator.Sensitive; }
-			set { separator.Sensitive = value; }
+			get { return sensitive; }
+			set { sensitive = value; }
 		}
 
 		public bool Visible {
-			get { return separator.Visible; }
-			set { separator.Visible = value; }
+			get { return visible; }
+			set {
+				visible = value;
+				NotifyMenuChanged();
+			}
 		}
 
 		public void SetFormattedText(FormattedText text)
@@ -61,7 +90,12 @@ namespace Xwt.GtkBackend
 
 		public void Dispose()
 		{
-			separator?.Dispose();
+			menuHost = null;
+		}
+
+		void NotifyMenuChanged()
+		{
+			menuHost?.Invalidate();
 		}
 	}
 }

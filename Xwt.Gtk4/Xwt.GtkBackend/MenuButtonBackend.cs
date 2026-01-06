@@ -109,9 +109,11 @@ namespace Xwt.GtkBackend
 		{
 			var menu = eventSink?.OnCreateMenu();
 			if (menu is MenuBackend gtkMenu) {
-				gtkMenu.AttachTo(menuButton);
-				menuButton.Popover = gtkMenu.Popover;
-				gtkMenu.Popup(menuButton, 0, menuButton.GetAllocatedHeight());
+				menuButton.MenuModel = gtkMenu.MenuModel;
+				gtkMenu.AttachActionGroup(menuButton);
+				menuButton.Popup();
+			} else {
+				menuButton.MenuModel = null;
 			}
 			ApplicationContext.InvokeUserCode(eventSink.OnClicked);
 		}

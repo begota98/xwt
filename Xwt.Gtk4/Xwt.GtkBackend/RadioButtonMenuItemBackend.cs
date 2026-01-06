@@ -1,53 +1,70 @@
 using System;
 using Xwt.Backends;
 using Xwt.Drawing;
+using Gio;
+using GLib;
 
 namespace Xwt.GtkBackend
 {
 	public class RadioButtonMenuItemBackend : IRadioButtonMenuItemBackend, IGtkMenuItemBackend
 	{
-		readonly Gtk.CheckButton checkButton;
-		readonly Gtk.Box contentBox;
-		readonly Gtk.Label label;
-		Gtk.Widget imageWidget;
-		Gtk.Image submenuArrow;
+		readonly string actionName;
+		readonly SimpleAction action;
 		IMenuItemEventSink eventSink;
 		ApplicationContext context;
-		IMenuBackend submenu;
+		MenuBackend menuHost;
+		string label = string.Empty;
+		string tooltip = string.Empty;
+		bool useMnemonic = true;
+		bool sensitive = true;
+		bool visible = true;
 		bool clickedEnabled;
-		bool useMnemonic;
 		bool internalToggle;
+		bool checkedValue;
+		FormattedText formattedText;
+		ImageDescription imageDesc = ImageDescription.Null;
+		IMenuBackend submenu;
 
 		public RadioButtonMenuItemBackend()
 		{
-			checkButton = Gtk.CheckButton.New();
-			checkButton.Halign = Gtk.Align.Fill;
-			contentBox = Gtk.Box.New(Gtk.Orientation.Horizontal, 6);
-			label = Gtk.Label.New(string.Empty);
-			label.Hexpand = true;
-			label.Halign = Gtk.Align.Start;
-			label.Xalign = 0f;
-			imageWidget = Gtk.Image.New();
-			submenuArrow = Gtk.Image.NewFromIconName("pan-end-symbolic");
-			submenuArrow.Visible = false;
-			imageWidget.Visible = false;
-			label.Visible = true;
-			contentBox.Append(imageWidget);
-			contentBox.Append(label);
-			contentBox.Append(submenuArrow);
-			checkButton.SetChild(contentBox);
-			checkButton.Show();
+			actionName = "item" + MenuActionIds.NextId().ToString();
+			action = SimpleAction.NewStateful(actionName, null, Variant.NewBoolean(false));
+			action.Enabled = sensitive;
+			action.OnChangeState += HandleChangeState;
 		}
 
-		public Gtk.Widget Widget => checkButton;
+		public bool IsSeparator => false;
+
+		public bool IsVisible => visible;
 
 		public bool Checked {
-			get { return checkButton.Active; }
-			set {
-				internalToggle = true;
-				checkButton.Active = value;
-				internalToggle = false;
-			}
+			get { return checkedValue; }
+			set { SetChecked(value); }
+		}
+
+		public void Attach(MenuBackend menu)
+		{
+			menuHost = menu;
+			menu?.RegisterAction(action);
+		}
+
+		public void Detach(MenuBackend menu)
+		{
+			menu?.UnregisterAction(actionName);
+			if (menuHost == menu)
+				menuHost = null;
+		}
+
+		public Gio.MenuItem BuildMenuItem(string actionGroupName)
+		{
+			var text = formattedText?.Text ?? label ?? string.Empty;
+			string detailedAction = submenu == null ? actionGroupName + "." + actionName : null;
+			var menuItem = Gio.MenuItem.New(text, detailedAction);
+			menuItem.SetAttributeValue("role", Variant.NewString("radio"));
+			if (submenu is MenuBackend gtkMenu)
+				menuItem.SetLink("submenu", gtkMenu.MenuModel);
+			ApplyCommonAttributes(menuItem);
+			return menuItem;
 		}
 
 		public void InitializeBackend(object frontend, ApplicationContext context)
@@ -57,18 +74,14 @@ namespace Xwt.GtkBackend
 
 		public void EnableEvent(object eventId)
 		{
-			if (eventId is MenuItemEvent ev && ev == MenuItemEvent.Clicked && !clickedEnabled) {
-				checkButton.OnToggled += HandleToggled;
+			if (eventId is MenuItemEvent ev && ev == MenuItemEvent.Clicked)
 				clickedEnabled = true;
-			}
 		}
 
 		public void DisableEvent(object eventId)
 		{
-			if (eventId is MenuItemEvent ev && ev == MenuItemEvent.Clicked && clickedEnabled) {
-				checkButton.OnToggled -= HandleToggled;
+			if (eventId is MenuItemEvent ev && ev == MenuItemEvent.Clicked)
 				clickedEnabled = false;
-			}
 		}
 
 		public void Initialize(IMenuItemEventSink eventSink)
@@ -79,109 +92,118 @@ namespace Xwt.GtkBackend
 		public void SetSubmenu(IMenuBackend menu)
 		{
 			submenu = menu;
-			submenuArrow.Visible = submenu != null;
+			if (menuHost != null && submenu is MenuBackend gtkMenu)
+				gtkMenu.ShareActionGroup(menuHost);
+			NotifyMenuChanged();
 		}
 
 		public void SetImage(ImageDescription image)
 		{
-			if (image.IsNull || image.Backend == null) {
-				if (imageWidget != null)
-					imageWidget.Visible = false;
-				return;
-			}
-
-			var gtkImage = (GtkImage)image.Backend;
-			if (gtkImage == null || (gtkImage.Pixbuf == null && !gtkImage.HasMultipleSizes)) {
-				if (imageWidget != null)
-					imageWidget.Visible = false;
-				return;
-			}
-
-			var newWidget = gtkImage.CreateWidget(context, image);
-			ReplaceImageWidget(newWidget);
-			imageWidget.Visible = true;
+			imageDesc = image;
+			NotifyMenuChanged();
 		}
 
 		public string Label {
-			get { return label.Label_ ?? string.Empty; }
+			get { return label ?? string.Empty; }
 			set {
-				label.UseMarkup = false;
-				label.Label_ = value ?? string.Empty;
-				label.SetAttributes(null);
+				label = value ?? string.Empty;
+				formattedText = null;
+				NotifyMenuChanged();
 			}
 		}
 
 		public string TooltipText {
-			get { return checkButton.TooltipText ?? string.Empty; }
-			set { checkButton.TooltipText = value ?? string.Empty; }
+			get { return tooltip ?? string.Empty; }
+			set { tooltip = value ?? string.Empty; }
 		}
 
 		public bool UseMnemonic {
 			get { return useMnemonic; }
 			set {
 				useMnemonic = value;
-				label.UseUnderline = value;
+				NotifyMenuChanged();
 			}
 		}
 
 		public bool Sensitive {
-			get { return checkButton.Sensitive; }
-			set { checkButton.Sensitive = value; }
+			get { return sensitive; }
+			set {
+				sensitive = value;
+				action.Enabled = value;
+				NotifyMenuChanged();
+			}
 		}
 
 		public bool Visible {
-			get { return checkButton.Visible; }
-			set { checkButton.Visible = value; }
+			get { return visible; }
+			set {
+				visible = value;
+				NotifyMenuChanged();
+			}
 		}
 
 		public void SetFormattedText(FormattedText text)
 		{
-			FormattedTextUtil.ApplyFormattedText(label, text);
+			formattedText = text;
+			NotifyMenuChanged();
 		}
 
 		public void Dispose()
 		{
-			if (clickedEnabled)
-				checkButton.OnToggled -= HandleToggled;
-			checkButton?.Dispose();
+			menuHost?.UnregisterAction(actionName);
+			menuHost = null;
+			action.OnChangeState -= HandleChangeState;
+			action.Dispose();
 		}
 
-		void ReplaceImageWidget(Gtk.Widget newWidget)
+		void HandleChangeState(SimpleAction sender, SimpleAction.ChangeStateSignalArgs args)
 		{
-			if (newWidget == null)
+			if (args?.Value == null || internalToggle)
 				return;
-			if (imageWidget != null)
-				contentBox.Remove(imageWidget);
-			imageWidget = newWidget;
-			contentBox.Prepend(imageWidget);
-		}
-
-		void HandleToggled(object sender, EventArgs e)
-		{
-			if (internalToggle)
-				return;
-			if (submenu != null) {
-				if (submenu is MenuBackend gtkMenu) {
-					gtkMenu.AttachTo(checkButton);
-					gtkMenu.Popup(checkButton, 0, checkButton.GetAllocatedHeight());
-				}
-				return;
+			internalToggle = true;
+			checkedValue = args.Value.GetBoolean();
+			sender.ChangeState(args.Value);
+			internalToggle = false;
+			if (clickedEnabled) {
+				if (context != null && eventSink != null)
+					context.InvokeUserCode(eventSink.OnClicked);
+				else
+					eventSink?.OnClicked();
 			}
-			if (context != null && eventSink != null)
-				context.InvokeUserCode(eventSink.OnClicked);
-			else
-				eventSink?.OnClicked();
-			CloseParentPopover(checkButton);
+			NotifyMenuChanged();
 		}
 
-		static void CloseParentPopover(Gtk.Widget widget)
+		void SetChecked(bool value)
 		{
-			for (var parent = widget?.Parent; parent != null; parent = parent.Parent) {
-				if (parent is Gtk.Popover popover) {
-					popover.Popdown();
-					return;
+			checkedValue = value;
+			internalToggle = true;
+			action.ChangeState(Variant.NewBoolean(value));
+			internalToggle = false;
+			NotifyMenuChanged();
+		}
+
+		void ApplyCommonAttributes(Gio.MenuItem menuItem)
+		{
+			if (menuItem == null)
+				return;
+
+			menuItem.SetAttributeValue("use-underline", Variant.NewBoolean(useMnemonic));
+			menuItem.SetAttributeValue("enabled", Variant.NewBoolean(sensitive));
+
+			if (imageDesc.IsNull || imageDesc.Backend == null)
+				return;
+			if (imageDesc.Backend is GtkImage gtkImage) {
+				var iconName = gtkImage.IconName;
+				if (!string.IsNullOrEmpty(iconName)) {
+					var icon = Gio.ThemedIcon.NewWithDefaultFallbacks(iconName);
+					menuItem.SetIcon(icon);
 				}
 			}
+		}
+
+		void NotifyMenuChanged()
+		{
+			menuHost?.Invalidate();
 		}
 	}
 }

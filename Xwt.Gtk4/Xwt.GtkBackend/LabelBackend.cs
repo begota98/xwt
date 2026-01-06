@@ -150,6 +150,7 @@ namespace Xwt.GtkBackend
 				linkEventEnabled = true;
 				EnsureLinkControllers();
 			}
+			base.EnableEvent(eventId);
 		}
 
 		public override void DisableEvent(object eventId)
@@ -158,6 +159,7 @@ namespace Xwt.GtkBackend
 				linkEventEnabled = false;
 				RemoveLinkControllers();
 			}
+			base.DisableEvent(eventId);
 		}
 
 		void EnsureLinkControllers()

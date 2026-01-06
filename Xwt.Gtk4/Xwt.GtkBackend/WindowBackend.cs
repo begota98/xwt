@@ -8,6 +8,8 @@ namespace Xwt.GtkBackend
 	public class WindowBackend : WindowFrameBackend, IWindowBackend
 	{
 		Gtk.Box mainBox;
+		Gtk.Overlay rootOverlay;
+		Gtk.MenuButton contextMenuAnchor;
 		Gtk.Widget content;
 		Gtk.Widget menuBar;
 		IMenuBackend pendingMenu;
@@ -23,7 +25,24 @@ namespace Xwt.GtkBackend
 			mainBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
 			mainBox.Hexpand = true;
 			mainBox.Vexpand = true;
-			Window.Child = mainBox;
+			rootOverlay = Gtk.Overlay.New();
+			rootOverlay.Hexpand = true;
+			rootOverlay.Vexpand = true;
+			rootOverlay.SetChild(mainBox);
+			Window.Child = rootOverlay;
+			contextMenuAnchor = Gtk.MenuButton.New();
+			contextMenuAnchor.HasFrame = false;
+			contextMenuAnchor.Halign = Gtk.Align.Start;
+			contextMenuAnchor.Valign = Gtk.Align.Start;
+			contextMenuAnchor.Hexpand = false;
+			contextMenuAnchor.Vexpand = false;
+			contextMenuAnchor.Focusable = false;
+			contextMenuAnchor.CanTarget = false;
+			contextMenuAnchor.SetSizeRequest(1, 1);
+			contextMenuAnchor.Opacity = 0;
+			contextMenuAnchor.Show();
+			rootOverlay.AddOverlay(contextMenuAnchor);
+			MenuBackend.RegisterContextMenuAnchor(Window, contextMenuAnchor);
 			ApplyBackground();
 			if (pendingMenu != null)
 				SetMainMenu(pendingMenu);
@@ -63,6 +82,8 @@ namespace Xwt.GtkBackend
 				menuBar.Vexpand = false;
 				menuBar.Show();
 				mainBox.Prepend(menuBar);
+				if (Window != null)
+					gtkMenu.AttachActionGroup(Window);
 			}
 
 			pendingMenu = null;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Xwt.Accessibility;
 using Xwt.Backends;
 
@@ -51,13 +52,12 @@ namespace Xwt.GtkBackend
 		public void Initialize(IMenuBackend parentMenu, IAccessibleEventSink eventSink)
 		{
 			var menuBackend = parentMenu as MenuBackend;
-			Initialize(menuBackend?.Menu, eventSink);
+			InitializeOptional(menuBackend?.GetAccessibleWidget(), eventSink);
 		}
 
 		public void Initialize(IMenuItemBackend parentMenuItem, IAccessibleEventSink eventSink)
 		{
-			var menuItemBackend = parentMenuItem as MenuItemBackend;
-			Initialize(menuItemBackend?.MenuItem, eventSink);
+			InitializeOptional(null, eventSink);
 		}
 
 		public void Initialize(object parentWidget, IAccessibleEventSink eventSink)
@@ -71,6 +71,12 @@ namespace Xwt.GtkBackend
 		public void InitializeBackend(object frontend, ApplicationContext context)
 		{
 			this.context = context;
+		}
+
+		void InitializeOptional(Gtk.Widget parentWidget, IAccessibleEventSink eventSink)
+		{
+			this.eventSink = eventSink;
+			widget = parentWidget;
 		}
 
 		public Rectangle Bounds {
@@ -213,8 +219,44 @@ namespace Xwt.GtkBackend
 				return;
 			}
 			using var value = new GObject.Value(text);
-			using var values = GObject.Internal.ValueArray2OwnedHandle.Create(new[] { value });
+			using var values = ValueArray2OwnedHandleShim.Create(new[] { value });
 			Gtk.Internal.Accessible.UpdateProperty(handle, 1, new[] { property }, values);
+		}
+
+		sealed class ValueArray2OwnedHandleShim : GObject.Internal.ValueArray2Handle
+		{
+			ValueArray2OwnedHandleShim(IntPtr ptr)
+				: base(ownsHandle: true)
+			{
+				SetHandle(ptr);
+			}
+
+			public static ValueArray2OwnedHandleShim Create(GObject.Value[] data)
+			{
+				if (data == null || data.Length == 0)
+					throw new ArgumentException("Value array must not be empty.", nameof(data));
+				int size = Marshal.SizeOf<GObject.Internal.ValueData>();
+				IntPtr buffer = Marshal.AllocHGlobal(size * data.Length);
+				IntPtr cursor = buffer;
+				for (int i = 0; i < data.Length; i++) {
+					var value = data[i];
+					GObject.Internal.ValueData valueData;
+					if (value == null) {
+						valueData = default;
+					} else {
+						valueData = Marshal.PtrToStructure<GObject.Internal.ValueData>(value.Handle.DangerousGetHandle());
+					}
+					Marshal.StructureToPtr(valueData, cursor, false);
+					cursor = IntPtr.Add(cursor, size);
+				}
+				return new ValueArray2OwnedHandleShim(buffer);
+			}
+
+			protected override bool ReleaseHandle()
+			{
+				Marshal.FreeHGlobal(handle);
+				return true;
+			}
 		}
 	}
 }

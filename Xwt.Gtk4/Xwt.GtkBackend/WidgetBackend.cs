@@ -14,6 +14,9 @@ namespace Xwt.GtkBackend
 {
 	public class WidgetBackend : IWidgetBackend, IGtkWidgetBackend
 	{
+		static WeakReference<WidgetBackend> lastButtonPressBackend;
+		static double lastButtonPressX;
+		static double lastButtonPressY;
 		Gtk.Widget widget;
 		Widget frontend;
 		IWidgetEventSink eventSink;
@@ -350,12 +353,18 @@ namespace Xwt.GtkBackend
 
 				if ((ev & (WidgetEvent.KeyPressed | WidgetEvent.KeyReleased | WidgetEvent.TextInput)) != 0)
 					EnsureKeyController();
-				if ((ev & (WidgetEvent.MouseEntered | WidgetEvent.MouseExited | WidgetEvent.MouseMoved)) != 0)
+				if ((ev & (WidgetEvent.MouseEntered | WidgetEvent.MouseExited | WidgetEvent.MouseMoved)) != 0) {
+					EnsureTargetable();
 					EnsureMotionController();
-				if ((ev & (WidgetEvent.ButtonPressed | WidgetEvent.ButtonReleased)) != 0)
+				}
+				if ((ev & (WidgetEvent.ButtonPressed | WidgetEvent.ButtonReleased)) != 0) {
+					EnsureTargetable();
 					EnsureClickController();
-				if ((ev & WidgetEvent.MouseScrolled) != 0)
+				}
+				if ((ev & WidgetEvent.MouseScrolled) != 0) {
+					EnsureTargetable();
 					EnsureScrollController();
+				}
 				if ((ev & (WidgetEvent.GotFocus | WidgetEvent.LostFocus | WidgetEvent.TextInput)) != 0)
 					EnsureFocusController();
 				if ((ev & WidgetEvent.BoundsChanged) != 0)
@@ -486,6 +495,14 @@ namespace Xwt.GtkBackend
 			motionController.OnLeave += HandleMouseLeave;
 			motionController.OnMotion += HandleMouseMotion;
 			widget.AddController(motionController);
+		}
+
+		void EnsureTargetable()
+		{
+			if (widget == null)
+				return;
+			if (!widget.CanTarget)
+				widget.CanTarget = true;
 		}
 
 		void EnsureClickController()
@@ -667,6 +684,7 @@ namespace Xwt.GtkBackend
 				Y = args.Y,
 				IsContextMenuTrigger = button == PointerButton.Right
 			};
+			RecordLastButtonPress(args.X, args.Y);
 			ApplicationContext.InvokeUserCode(() => eventSink.OnButtonPressed(bargs));
 		}
 
@@ -683,6 +701,28 @@ namespace Xwt.GtkBackend
 				IsContextMenuTrigger = button == PointerButton.Right
 			};
 			ApplicationContext.InvokeUserCode(() => eventSink.OnButtonReleased(bargs));
+		}
+
+		void RecordLastButtonPress(double x, double y)
+		{
+			lastButtonPressBackend = new WeakReference<WidgetBackend>(this);
+			lastButtonPressX = x;
+			lastButtonPressY = y;
+		}
+
+		internal static bool TryGetLastButtonPress(out Gtk.Widget widget, out double x, out double y)
+		{
+			widget = null;
+			x = 0;
+			y = 0;
+			if (lastButtonPressBackend == null || !lastButtonPressBackend.TryGetTarget(out var backend))
+				return false;
+			if (backend?.Widget == null)
+				return false;
+			widget = backend.Widget;
+			x = lastButtonPressX;
+			y = lastButtonPressY;
+			return true;
 		}
 
 		bool HandleScroll(Gtk.EventControllerScroll sender, Gtk.EventControllerScroll.ScrollSignalArgs args)
