@@ -162,7 +162,7 @@ namespace Xwt.GtkBackend
 				return;
 			internalToggle = true;
 			checkedValue = args.Value.GetBoolean();
-			sender.ChangeState(args.Value);
+			sender.SetState(args.Value);
 			internalToggle = false;
 			if (clickedEnabled) {
 				if (context != null && eventSink != null)
@@ -170,16 +170,14 @@ namespace Xwt.GtkBackend
 				else
 					eventSink?.OnClicked();
 			}
-			NotifyMenuChanged();
 		}
 
 		void SetChecked(bool value)
 		{
 			checkedValue = value;
 			internalToggle = true;
-			action.ChangeState(Variant.NewBoolean(value));
+			action.SetState(Variant.NewBoolean(value));
 			internalToggle = false;
-			NotifyMenuChanged();
 		}
 
 		void ApplyCommonAttributes(Gio.MenuItem menuItem)

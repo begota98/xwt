@@ -28,7 +28,7 @@ namespace Xwt.GtkBackend
 		public RadioButtonMenuItemBackend()
 		{
 			actionName = "item" + MenuActionIds.NextId().ToString();
-			action = SimpleAction.NewStateful(actionName, null, Variant.NewBoolean(false));
+			action = SimpleAction.NewStateful(actionName, VariantType.New("b"), Variant.NewBoolean(false));
 			action.Enabled = sensitive;
 			action.OnChangeState += HandleChangeState;
 		}
@@ -60,7 +60,7 @@ namespace Xwt.GtkBackend
 			var text = formattedText?.Text ?? label ?? string.Empty;
 			string detailedAction = submenu == null ? actionGroupName + "." + actionName : null;
 			var menuItem = Gio.MenuItem.New(text, detailedAction);
-			menuItem.SetAttributeValue("role", Variant.NewString("radio"));
+			menuItem.SetAttributeValue("target", Variant.NewBoolean(true));
 			if (submenu is MenuBackend gtkMenu)
 				menuItem.SetLink("submenu", gtkMenu.MenuModel);
 			ApplyCommonAttributes(menuItem);
@@ -162,7 +162,7 @@ namespace Xwt.GtkBackend
 				return;
 			internalToggle = true;
 			checkedValue = args.Value.GetBoolean();
-			sender.ChangeState(args.Value);
+			sender.SetState(args.Value);
 			internalToggle = false;
 			if (clickedEnabled) {
 				if (context != null && eventSink != null)
@@ -170,16 +170,14 @@ namespace Xwt.GtkBackend
 				else
 					eventSink?.OnClicked();
 			}
-			NotifyMenuChanged();
 		}
 
 		void SetChecked(bool value)
 		{
 			checkedValue = value;
 			internalToggle = true;
-			action.ChangeState(Variant.NewBoolean(value));
+			action.SetState(Variant.NewBoolean(value));
 			internalToggle = false;
-			NotifyMenuChanged();
 		}
 
 		void ApplyCommonAttributes(Gio.MenuItem menuItem)
