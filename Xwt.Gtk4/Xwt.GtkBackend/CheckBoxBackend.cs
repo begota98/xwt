@@ -6,35 +6,27 @@ namespace Xwt.GtkBackend
 	public class CheckBoxBackend : WidgetBackend, ICheckBoxBackend
 	{
 		Gtk.CheckButton checkButton;
-		readonly System.Collections.Generic.List<Gtk.GestureClick> clickControllers = new System.Collections.Generic.List<Gtk.GestureClick>();
-		readonly System.Collections.Generic.HashSet<IntPtr> clickControllerTargets = new System.Collections.Generic.HashSet<IntPtr>();
 		ICheckBoxEventSink checkBoxEventSink;
 		bool allowMixed;
 		bool internalActiveUpdate;
 		bool toggleEventEnabled;
-		bool clickBaselineActive;
-		bool clickBaselineInconsistent;
-		bool clickSequenceActive;
-		bool toggledDuringClick;
-		uint clickSequenceId;
+		bool rootPressActive;
 		Gtk.Widget rootWidget;
 		Gtk.GestureClick rootClickController;
+		static int nextTraceId;
+		readonly int traceId;
 		static readonly bool TraceEnabled = Environment.GetEnvironmentVariable("XWT_GTK4_CHECKBOX_TRACE") == "1";
 
 		public CheckBoxBackend()
 		{
+			traceId = System.Threading.Interlocked.Increment(ref nextTraceId);
 			checkButton = Gtk.CheckButton.New();
 			Widget = checkButton;
-			checkButton.CanTarget = true;
+			checkButton.CanTarget = false;
 			checkButton.FocusOnClick = true;
 			checkButton.CanFocus = true;
 			checkButton.Visible = true;
 			checkButton.OnToggled += HandleToggled;
-			AttachClickController(checkButton);
-			GLib.Functions.IdleAdd(GLib.Constants.PRIORITY_DEFAULT_IDLE, new GLib.SourceFunc(() => {
-				AttachChildControllers(checkButton);
-				return false;
-			}));
 			checkButton.OnMap += HandleMapped;
 			checkButton.OnUnmap += HandleUnmapped;
 		}
@@ -117,9 +109,6 @@ namespace Xwt.GtkBackend
 			if (internalActiveUpdate)
 				return;
 
-			if (clickSequenceActive)
-				toggledDuringClick = true;
-
 			if (allowMixed) {
 				if (!Widget.Active) {
 					internalActiveUpdate = true;
@@ -141,7 +130,7 @@ namespace Xwt.GtkBackend
 			if (toggleEventEnabled && EventSink != null)
 				ApplicationContext.InvokeUserCode(EventSink.OnToggled);
 
-			Trace($"toggled active={Widget.Active} inconsistent={Widget.Inconsistent} allowMixed={allowMixed} clickActive={clickSequenceActive}");
+			Trace($"toggled active={Widget.Active} inconsistent={Widget.Inconsistent} allowMixed={allowMixed}");
 		}
 
 		void HandleClicked(object sender, EventArgs e)
@@ -151,65 +140,33 @@ namespace Xwt.GtkBackend
 			ApplicationContext.InvokeUserCode(EventSink.OnClicked);
 		}
 
-		void HandleClickPressed(Gtk.GestureClick sender, Gtk.GestureClick.PressedSignalArgs args)
-		{
-			BeginClickSequence($"pressed n={args.NPress}");
-		}
-
-		void HandleClickReleased(Gtk.GestureClick sender, Gtk.GestureClick.ReleasedSignalArgs args)
-		{
-			EndClickSequence($"released n={args.NPress}");
-		}
-
 		void HandleRootPressed(Gtk.GestureClick sender, Gtk.GestureClick.PressedSignalArgs args)
 		{
+			if (internalActiveUpdate || !checkButton.Sensitive)
+				return;
 			if (!IsHitInCheckButton(args.X, args.Y))
 				return;
-			BeginClickSequence($"root-pressed n={args.NPress}");
+			sender.SetState(Gtk.EventSequenceState.Claimed);
+			rootPressActive = true;
+			checkButton.GrabFocus();
+			checkButton.SetStateFlags(Gtk.StateFlags.Active, false);
+			Trace($"root-pressed n={args.NPress} active={Widget.Active} inconsistent={Widget.Inconsistent}");
 		}
 
 		void HandleRootReleased(Gtk.GestureClick sender, Gtk.GestureClick.ReleasedSignalArgs args)
 		{
-			if (!IsHitInCheckButton(args.X, args.Y))
+			if (!rootPressActive)
 				return;
-			EndClickSequence($"root-released n={args.NPress}");
-		}
-
-		void BeginClickSequence(string context)
-		{
-			if (internalActiveUpdate)
+			rootPressActive = false;
+			if (internalActiveUpdate || !checkButton.Sensitive)
 				return;
-			if (clickSequenceActive) {
-				Trace($"{context} skipped: click sequence active");
-				return;
+			bool hit = IsHitInCheckButton(args.X, args.Y);
+			if (hit) {
+				sender.SetState(Gtk.EventSequenceState.Claimed);
+				checkButton.Activate();
+				Trace($"root-activate n={args.NPress} active={Widget.Active} inconsistent={Widget.Inconsistent}");
 			}
-			clickBaselineActive = Widget.Active;
-			clickBaselineInconsistent = Widget.Inconsistent;
-			clickSequenceActive = true;
-			toggledDuringClick = false;
-			clickSequenceId++;
-			Trace($"{context} active={Widget.Active} inconsistent={Widget.Inconsistent}");
-		}
-
-		void EndClickSequence(string context)
-		{
-			if (internalActiveUpdate || !clickSequenceActive)
-				return;
-			var sequenceId = clickSequenceId;
-			Trace($"{context} active={Widget.Active} inconsistent={Widget.Inconsistent}");
-			GLib.Functions.IdleAdd(GLib.Constants.PRIORITY_DEFAULT_IDLE, new GLib.SourceFunc(() => {
-				if (!clickSequenceActive || clickSequenceId != sequenceId)
-					return false;
-				if (toggledDuringClick || Widget.Active != clickBaselineActive || Widget.Inconsistent != clickBaselineInconsistent) {
-					clickSequenceActive = false;
-					Trace("idle: toggle already applied");
-					return false;
-				}
-				Widget.Active = !clickBaselineActive;
-				Trace($"fallback-toggle active={Widget.Active} inconsistent={Widget.Inconsistent}");
-				clickSequenceActive = false;
-				return false;
-			}));
+			checkButton.UnsetStateFlags(Gtk.StateFlags.Active);
 		}
 
 		void HandleMapped(Gtk.Widget sender, EventArgs args)
@@ -250,7 +207,7 @@ namespace Xwt.GtkBackend
 		{
 			if (rootWidget == null)
 				return false;
-			var picked = rootWidget.Pick(x, y, Gtk.PickFlags.Default);
+			var picked = rootWidget.Pick(x, y, Gtk.PickFlags.Default | Gtk.PickFlags.NonTargetable);
 			for (var w = picked; w != null; w = w.GetParent()) {
 				if (ReferenceEquals(w, checkButton))
 					return true;
@@ -258,38 +215,11 @@ namespace Xwt.GtkBackend
 			return false;
 		}
 
-		void AttachChildControllers(Gtk.Widget parent)
-		{
-			var child = parent.GetFirstChild();
-			while (child != null) {
-				AttachClickController(child);
-				AttachChildControllers(child);
-				child = child.GetNextSibling();
-			}
-		}
-
-		void AttachClickController(Gtk.Widget target)
-		{
-			if (target == null)
-				return;
-			var handle = target.Handle.DangerousGetHandle();
-			if (!clickControllerTargets.Add(handle))
-				return;
-			var controller = Gtk.GestureClick.New();
-			controller.SetButton(1);
-			controller.SetExclusive(false);
-			controller.PropagationPhase = Gtk.PropagationPhase.Target;
-			controller.OnPressed += HandleClickPressed;
-			controller.OnReleased += HandleClickReleased;
-			target.AddController(controller);
-			clickControllers.Add(controller);
-		}
-
-		static void Trace(string message)
+		void Trace(string message)
 		{
 			if (!TraceEnabled)
 				return;
-			Console.Error.WriteLine($"[Xwt.Gtk4] CheckBoxBackend {message}");
+			Console.Error.WriteLine($"[Xwt.Gtk4] CheckBoxBackend#{traceId} {message}");
 		}
 
 	}

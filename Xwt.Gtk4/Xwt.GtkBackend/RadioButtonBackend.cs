@@ -6,31 +6,24 @@ namespace Xwt.GtkBackend
 	public class RadioButtonBackend : WidgetBackend, IRadioButtonBackend
 	{
 		Gtk.CheckButton radioButton;
-		readonly System.Collections.Generic.List<Gtk.GestureClick> clickControllers = new System.Collections.Generic.List<Gtk.GestureClick>();
-		readonly System.Collections.Generic.HashSet<IntPtr> clickControllerTargets = new System.Collections.Generic.HashSet<IntPtr>();
 		IRadioButtonEventSink radioEventSink;
 		object group;
 		bool internalActiveUpdate;
 		bool toggleEventEnabled;
-		bool clickBaselineActive;
-		bool clickSequenceActive;
-		bool toggledDuringClick;
-		uint clickSequenceId;
+		bool rootPressActive;
 		Gtk.Widget rootWidget;
 		Gtk.GestureClick rootClickController;
+		static int nextTraceId;
+		readonly int traceId;
 		static readonly bool TraceEnabled = Environment.GetEnvironmentVariable("XWT_GTK4_RADIO_TRACE") == "1";
 
 		public RadioButtonBackend()
 		{
+			traceId = System.Threading.Interlocked.Increment(ref nextTraceId);
 			radioButton = Gtk.CheckButton.New();
 			Widget = radioButton;
 			radioButton.Visible = true;
 			radioButton.OnToggled += HandleToggled;
-			AttachClickController(radioButton);
-			GLib.Functions.IdleAdd(GLib.Constants.PRIORITY_DEFAULT_IDLE, new GLib.SourceFunc(() => {
-				AttachChildControllers(radioButton);
-				return false;
-			}));
 			radioButton.OnMap += HandleMapped;
 			radioButton.OnUnmap += HandleUnmapped;
 		}
@@ -113,10 +106,8 @@ namespace Xwt.GtkBackend
 		{
 			if (internalActiveUpdate || !toggleEventEnabled || EventSink == null)
 				return;
-			if (clickSequenceActive)
-				toggledDuringClick = true;
 			ApplicationContext.InvokeUserCode(EventSink.OnToggled);
-			Trace($"toggled active={Widget.Active} clickActive={clickSequenceActive}");
+			Trace($"toggled active={Widget.Active}");
 		}
 
 		void HandleClicked(object sender, EventArgs e)
@@ -126,64 +117,33 @@ namespace Xwt.GtkBackend
 			ApplicationContext.InvokeUserCode(EventSink.OnClicked);
 		}
 
-		void HandleClickPressed(Gtk.GestureClick sender, Gtk.GestureClick.PressedSignalArgs args)
-		{
-			BeginClickSequence($"pressed n={args.NPress}");
-		}
-
-		void HandleClickReleased(Gtk.GestureClick sender, Gtk.GestureClick.ReleasedSignalArgs args)
-		{
-			EndClickSequence($"released n={args.NPress}");
-		}
-
 		void HandleRootPressed(Gtk.GestureClick sender, Gtk.GestureClick.PressedSignalArgs args)
 		{
+			if (internalActiveUpdate || !radioButton.Sensitive)
+				return;
 			if (!IsHitInRadioButton(args.X, args.Y))
 				return;
-			BeginClickSequence($"root-pressed n={args.NPress}");
+			sender.SetState(Gtk.EventSequenceState.Claimed);
+			rootPressActive = true;
+			radioButton.GrabFocus();
+			radioButton.SetStateFlags(Gtk.StateFlags.Active, false);
+			Trace($"root-pressed n={args.NPress} active={Widget.Active}");
 		}
 
 		void HandleRootReleased(Gtk.GestureClick sender, Gtk.GestureClick.ReleasedSignalArgs args)
 		{
-			if (!IsHitInRadioButton(args.X, args.Y))
+			if (!rootPressActive)
 				return;
-			EndClickSequence($"root-released n={args.NPress}");
-		}
-
-		void BeginClickSequence(string context)
-		{
-			if (internalActiveUpdate)
+			rootPressActive = false;
+			if (internalActiveUpdate || !radioButton.Sensitive)
 				return;
-			if (clickSequenceActive) {
-				Trace($"{context} skipped: click sequence active");
-				return;
+			bool hit = IsHitInRadioButton(args.X, args.Y);
+			if (hit) {
+				sender.SetState(Gtk.EventSequenceState.Claimed);
+				radioButton.Activate();
+				Trace($"root-activate n={args.NPress} active={Widget.Active}");
 			}
-			clickBaselineActive = Widget.Active;
-			clickSequenceActive = true;
-			toggledDuringClick = false;
-			clickSequenceId++;
-			Trace($"{context} active={Widget.Active}");
-		}
-
-		void EndClickSequence(string context)
-		{
-			if (internalActiveUpdate || !clickSequenceActive)
-				return;
-			var sequenceId = clickSequenceId;
-			Trace($"{context} active={Widget.Active}");
-			GLib.Functions.IdleAdd(GLib.Constants.PRIORITY_DEFAULT_IDLE, new GLib.SourceFunc(() => {
-				if (!clickSequenceActive || clickSequenceId != sequenceId)
-					return false;
-				if (toggledDuringClick || Widget.Active != clickBaselineActive) {
-					clickSequenceActive = false;
-					Trace("idle: toggle already applied");
-					return false;
-				}
-				Widget.Active = true;
-				Trace($"fallback-activate active={Widget.Active}");
-				clickSequenceActive = false;
-				return false;
-			}));
+			radioButton.UnsetStateFlags(Gtk.StateFlags.Active);
 		}
 
 		void HandleMapped(Gtk.Widget sender, EventArgs args)
@@ -224,7 +184,7 @@ namespace Xwt.GtkBackend
 		{
 			if (rootWidget == null)
 				return false;
-			var picked = rootWidget.Pick(x, y, Gtk.PickFlags.Default);
+			var picked = rootWidget.Pick(x, y, Gtk.PickFlags.Default | Gtk.PickFlags.NonTargetable);
 			for (var w = picked; w != null; w = w.GetParent()) {
 				if (ReferenceEquals(w, radioButton))
 					return true;
@@ -232,38 +192,11 @@ namespace Xwt.GtkBackend
 			return false;
 		}
 
-		void AttachChildControllers(Gtk.Widget parent)
-		{
-			var child = parent.GetFirstChild();
-			while (child != null) {
-				AttachClickController(child);
-				AttachChildControllers(child);
-				child = child.GetNextSibling();
-			}
-		}
-
-		void AttachClickController(Gtk.Widget target)
-		{
-			if (target == null)
-				return;
-			var handle = target.Handle.DangerousGetHandle();
-			if (!clickControllerTargets.Add(handle))
-				return;
-			var controller = Gtk.GestureClick.New();
-			controller.SetButton(1);
-			controller.SetExclusive(false);
-			controller.PropagationPhase = Gtk.PropagationPhase.Target;
-			controller.OnPressed += HandleClickPressed;
-			controller.OnReleased += HandleClickReleased;
-			target.AddController(controller);
-			clickControllers.Add(controller);
-		}
-
-		static void Trace(string message)
+		void Trace(string message)
 		{
 			if (!TraceEnabled)
 				return;
-			Console.Error.WriteLine($"[Xwt.Gtk4] RadioButtonBackend {message}");
+			Console.Error.WriteLine($"[Xwt.Gtk4] RadioButtonBackend#{traceId} {message}");
 		}
 
 		static Gtk.CheckButton ExtractGroupButton(object value)
